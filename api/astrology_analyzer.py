@@ -1,8 +1,7 @@
 import pandas as pd
 import numpy as np
-import ephem
 from datetime import datetime, timedelta
-import pytz
+from ephem import Moon, Sun, Mercury,Venus,Mars,Jupiter,Saturn,Observer
 import math
 from collections import Counter, defaultdict
 from sklearn.cluster import KMeans, DBSCAN
@@ -26,13 +25,13 @@ SIGNS = [
 ]
 
 PLANETS = {
-    'Ravi': ephem.Sun,
-    'Chandra': ephem.Moon,
-    'Budha': ephem.Mercury,
-    'Shukra': ephem.Venus,
-    'Kuja': ephem.Mars,
-    'Guru': ephem.Jupiter,
-    'Shani': ephem.Saturn,
+    'Ravi': Sun,
+    'Chandra': Moon,
+    'Budha': Mercury,
+    'Shukra': Venus,
+    'Kuja': Mars,
+    'Guru': Jupiter,
+    'Shani': Saturn,
 }
 
 PLANET_NAMES = list(PLANETS.keys()) + ['Rahu', 'Ketu']
@@ -146,7 +145,7 @@ class AstrologyAnalyzer:
 
     def create_observer(self, lat, lon, date):
         """Create ephem observer at the given location and time"""
-        observer = ephem.Observer()
+        observer = Observer()
         observer.lat = self.degrees_to_dms(lat)
         observer.lon = self.degrees_to_dms(lon)
         observer.date = date
@@ -165,7 +164,7 @@ class AstrologyAnalyzer:
             positions[planet_name] = sidereal_lon
         
         # Calculate Rahu and Ketu
-        moon = ephem.Moon()
+        moon = Moon()
         moon.compute(observer)
         rahu_lon = (math.degrees(moon.ra) * 15 + 90) % 360
         rahu_sidereal = (rahu_lon - AYANAMSA) % 360
