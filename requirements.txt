@@ -1,6 +1,6 @@
 flask==2.3.3
 werkzeug==3.0.1
 pandas==2.2.2
-numpy==1.26.4
-swisseph==2.8.0
-scikit-learn==1.5.1
+numpy
+swisseph
+scikit-learn
