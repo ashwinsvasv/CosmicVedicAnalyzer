@@ -2,17 +2,20 @@
 
 **Unlock celestial insights from event data using ancient Vedic astrology combined with modern data science**
 
+![1](/api/static/1.png)
 ## 📌 Overview
 
 This project analyzes historical or contemporary events through the lens of Vedic astrology, revealing hidden planetary patterns and cosmic influences. It processes event data (like earthquakes, financial events, or personal milestones) and performs sophisticated astrological calculations combined with machine learning analysis.
 
 ## 🔍 Key Features
 
+![1](/api/static/5.png)
 ### 📊 Data Processing
 - **Flexible CSV parsing** - Handles multiple date/time formats automatically
 - **Smart column detection** - Identifies date, location, magnitude columns
 - **Data normalization** - Converts diverse formats into standardized astrological inputs
 
+![1](/api/static/2.png)
 ### ♉ Vedic Astrology Analysis
 - **Planetary Positions**: Calculates positions of all 9 Vedic planets (including Rahu/Ketu)
 - **House System**: 12-house Bhāva system with accurate cusp calculations
@@ -40,6 +43,7 @@ This project analyzes historical or contemporary events through the lens of Vedi
   - **Feature Analysis**: Random Forest feature importance
   - **Network Analysis**: NetworkX for planetary aspect graphs
 
+![1](/api/static/3.png)
 ### Frontend
 - **Interactive Visualizations**: Chart.js for planetary distributions and patterns
 - **Cosmic UI**: Particle.js animated background with responsive design
@@ -96,6 +100,8 @@ Visit `http://localhost:5000` in your browser after starting the application.
    - Examine significant yogas and aspects
    - Explore AI-generated clusters and patterns
 
+
+![1](/api/static/4.png)
 ## 🧠 Astrological Methodology
 
 ### Core Calculations
@@ -138,4 +144,6 @@ MIT License - See [LICENSE](LICENSE) for details.
     <a href="mailto:ic31908@gmail.com">Contact</a>
   </p>
 </div>
+
+
 ![Views](https://dynamic-repo-badges.vercel.app/svg/count/6/Repository%20Views/astroana)
