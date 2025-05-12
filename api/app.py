@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, redirect, url_for,abort,send_from_directory
+from flask import Flask, request, render_template, redirect, url_for, abort, send_from_directory
 from werkzeug.utils import secure_filename
 import pandas as pd
 try:
@@ -18,14 +18,33 @@ def extract_datetime_components(date_str):
     if not isinstance(date_str, str):
         return None
     
+    # Handle negative years (BCE dates)
+    negative_year = False
+    if date_str.startswith('-'):
+        negative_year = True
+        date_str = date_str[1:]  # Remove the negative sign
+    
     # Clean the date string
     date_str = date_str.strip()
+    
+    # If it's just a year
+    if date_str.isdigit() and len(date_str) <= 4:
+        year = int(date_str)
+        if negative_year:
+            year = -year
+        return {
+            'YEAR': year,
+            'MONTH': 1,
+            'DAY': 1,
+            'HOUR': 12,
+            'MINUTE': 0
+        }
     
     try:
         # Try ISO format first
         dt = datetime.fromisoformat(date_str)
         return {
-            'YEAR': dt.year,
+            'YEAR': dt.year if not negative_year else -dt.year,
             'MONTH': dt.month,
             'DAY': dt.day,
             'HOUR': dt.hour,
@@ -54,7 +73,7 @@ def extract_datetime_components(date_str):
         try:
             dt = datetime.strptime(date_str, fmt)
             return {
-                'YEAR': dt.year,
+                'YEAR': dt.year if not negative_year else -dt.year,
                 'MONTH': dt.month,
                 'DAY': dt.day,
                 'HOUR': dt.hour if has_time else 12,
@@ -69,24 +88,11 @@ def extract_datetime_components(date_str):
         match = re.match(date_pattern, date_str)
         if match:
             day, month, year, hour, minute = match.groups()
+            year_val = int(year)
+            if negative_year:
+                year_val = -year_val
             return {
-                'YEAR': int(year),
-                'MONTH': int(month),
-                'DAY': int(day),
-                'HOUR': int(hour),
-                'MINUTE': int(minute)
-            }
-    except:
-        pass
-    
-    # Try earthquake dataset specific format (DD-MM-YYYY HH:MM)
-    try:
-        date_pattern = r'(\d{1,2})-(\d{1,2})-(\d{4})\s+(\d{1,2}):(\d{1,2})'
-        match = re.search(date_pattern, date_str)
-        if match:
-            day, month, year, hour, minute = match.groups()
-            return {
-                'YEAR': int(year),
+                'YEAR': year_val,
                 'MONTH': int(month),
                 'DAY': int(day),
                 'HOUR': int(hour),
@@ -105,6 +111,12 @@ def extract_coordinates(location_str):
     # Try decimal degrees format
     decimal_pattern = r'(-?\d+\.\d+)[, ]+(-?\d+\.\d+)'
     match = re.search(decimal_pattern, location_str)
+    if match:
+        return float(match.group(1)), float(match.group(2))
+    
+    # Try parenthesized coordinates format like (50.775000, 6.083330)
+    parens_pattern = r'\((-?\d+\.\d+)[, ]+(-?\d+\.\d+)\)'
+    match = re.search(parens_pattern, location_str)
     if match:
         return float(match.group(1)), float(match.group(2))
     
@@ -133,11 +145,18 @@ def identify_column_types(df):
         'date': [],
         'time': [],
         'datetime': [],
+        'year': [],
         'magnitude': [],
         'latitude': [],
         'longitude': [],
         'location': [],
-        'depth': []
+        'depth': [],
+        'elevation': [],
+        'vei': [],  # Volcanic Explosivity Index
+        'mass': [],  # For meteorites
+        'type': [],  # For volcano/meteorite type
+        'name': [],  # For volcano/meteorite name
+        'country': []  # For country
     }
     
     # Check each column name for keywords
@@ -145,21 +164,31 @@ def identify_column_types(df):
         col_lower = str(col).lower()
         
         # Check for date/time columns
-        if any(kw in col_lower for kw in ['date_time', 'datetime']):
+        if any(kw in col_lower for kw in ['date_time', 'datetime', 'geolocation']):
             column_types['datetime'].append(col)
         elif 'date' in col_lower:
             column_types['date'].append(col)
         elif 'time' in col_lower:
             column_types['time'].append(col)
+        elif 'year' == col_lower:
+            column_types['year'].append(col)
             
         # Check for magnitude columns
         if any(kw in col_lower for kw in ['magnitude', 'mag', ' m ']):
             column_types['magnitude'].append(col)
             
+        # Check for VEI columns
+        if 'vei' == col_lower:
+            column_types['vei'].append(col)
+            
+        # Check for mass columns (meteorites)
+        if 'mass' == col_lower:
+            column_types['mass'].append(col)
+            
         # Check for coordinate columns
-        if any(kw == col_lower for kw in ['latitude', 'lat']):
+        if any(kw == col_lower for kw in ['latitude', 'lat', 'reclat']):
             column_types['latitude'].append(col)
-        if any(kw == col_lower for kw in ['longitude', 'long', 'lon']):
+        if any(kw == col_lower for kw in ['longitude', 'long', 'lon', 'reclong']):
             column_types['longitude'].append(col)
             
         # Check for location columns
@@ -169,32 +198,65 @@ def identify_column_types(df):
         # Check for depth columns
         if 'depth' in col_lower:
             column_types['depth'].append(col)
+            
+        # Check for elevation columns
+        if 'elevation' in col_lower:
+            column_types['elevation'].append(col)
+            
+        # Check for type columns
+        if any(kw == col_lower for kw in ['type', 'recclass', 'nametype']):
+            column_types['type'].append(col)
+            
+        # Check for name columns
+        if any(kw == col_lower for kw in ['name']):
+            column_types['name'].append(col)
+            
+        # Check for country columns
+        if 'country' == col_lower:
+            column_types['country'].append(col)
     
     # If we don't have explicit columns, try to identify by content
-    if not column_types['magnitude']:
+    if not column_types['magnitude'] and not column_types['vei']:
         for col in df.columns:
             # Try to identify magnitude columns (typically small numbers < 10)
-            if df[col].dtype in [np.float64, np.int64]:
-                values = pd.to_numeric(df[col], errors='coerce')
-                if values.min() >= 0 and values.max() <= 10:
-                    column_types['magnitude'].append(col)
-                    break
+            if df[col].dtype in [np.float64, np.int64, np.float32, np.int32]:
+                try:
+                    values = pd.to_numeric(df[col], errors='coerce')
+                    if values.min() >= 0 and values.max() <= 10:
+                        column_types['magnitude'].append(col)
+                        break
+                except:
+                    continue
     
     return column_types
 
-def extract_magnitude(df):
+def extract_magnitude(df, column_types):
     """Try to extract magnitude from various column formats"""
-    # First check columns that might contain magnitude information
-    magnitude_cols = [col for col in df.columns if any(kw in str(col).lower() for kw in ['magnitude', 'mag', ' m '])]
+    # First check for VEI (Volcanic Explosivity Index)
+    if column_types['vei']:
+        return pd.to_numeric(df[column_types['vei'][0]], errors='coerce')
     
-    if magnitude_cols:
-        # Use the first detected magnitude column
-        mag_col = magnitude_cols[0]
-        return pd.to_numeric(df[mag_col], errors='coerce')
+    # Then check for regular magnitude columns
+    if column_types['magnitude']:
+        return pd.to_numeric(df[column_types['magnitude'][0]], errors='coerce')
+    
+    # Then check for mass (meteorites)
+    if column_types['mass']:
+        # For mass, we'll log-normalize it to a scale similar to magnitude
+        mass_values = pd.to_numeric(df[column_types['mass'][0]], errors='coerce')
+        # Avoid log(0) errors
+        mass_values = mass_values.replace(0, np.nan)
+        if not mass_values.isna().all():
+            log_mass = np.log10(mass_values)
+            # Scale to a range similar to earthquake magnitudes (0-10)
+            min_log = log_mass.min()
+            max_log = log_mass.max()
+            if not np.isnan(min_log) and not np.isnan(max_log) and min_log != max_log:
+                return ((log_mass - min_log) / (max_log - min_log)) * 10
     
     # If no explicit magnitude column, look for a column with values between 0 and 10
     for col in df.columns:
-        if df[col].dtype in [np.float64, np.int64]:
+        if df[col].dtype in [np.float64, np.int64, np.float32, np.int32]:
             try:
                 values = pd.to_numeric(df[col], errors='coerce')
                 if values.min() >= 0 and values.max() <= 10 and values.mean() > 2:
@@ -228,6 +290,7 @@ def normalize_csv(df):
     datetime_cols = column_types['datetime']
     date_cols = column_types['date']
     time_cols = column_types['time']
+    year_cols = column_types['year']
     
     # Process datetime information
     if datetime_cols:
@@ -266,11 +329,25 @@ def normalize_csv(df):
             else:
                 normalized[col] = 1 if col in ['MONTH', 'DAY'] else (12 if col == 'HOUR' else 0)
     
+    elif year_cols:
+        # If we only have year information (common for volcanic/geological data)
+        year_col = year_cols[0]
+        normalized['YEAR'] = pd.to_numeric(df[year_col], errors='coerce')
+        
+        # Default values for other time components
+        normalized['MONTH'] = 1
+        normalized['DAY'] = 1
+        normalized['HOUR'] = 12
+        normalized['MINUTE'] = 0
+    
     else:
         # Try to find individual components
         for col in ['YEAR', 'MONTH', 'DAY', 'HOUR', 'MINUTE']:
-            if col in df.columns:
-                normalized[col] = pd.to_numeric(df[col], errors='coerce').fillna(1 if col in ['MONTH', 'DAY'] else (12 if col == 'HOUR' else 0))
+            matching_cols = [c for c in df.columns if c.upper() == col]
+            if matching_cols:
+                normalized[col] = pd.to_numeric(df[matching_cols[0]], errors='coerce').fillna(
+                    1 if col in ['MONTH', 'DAY'] else (12 if col == 'HOUR' else 0)
+                )
             else:
                 normalized[col] = 1 if col in ['MONTH', 'DAY'] else (12 if col == 'HOUR' else 0)
     
@@ -278,11 +355,21 @@ def normalize_csv(df):
     lat_cols = column_types['latitude']
     lon_cols = column_types['longitude']
     loc_cols = column_types['location']
+    geo_cols = [col for col in df.columns if 'geo' in str(col).lower() and 'location' in str(col).lower()]
     
     if lat_cols and lon_cols:
         # If we have explicit latitude and longitude columns
         normalized['LATITUDE'] = pd.to_numeric(df[lat_cols[0]], errors='coerce')
         normalized['LONGITUDE'] = pd.to_numeric(df[lon_cols[0]], errors='coerce')
+    elif geo_cols:
+        # Try to extract coordinates from GeoLocation string
+        geo_col = geo_cols[0]
+        df[geo_col] = df[geo_col].astype(str)
+        
+        # Apply function to extract coordinates from location string
+        coords = df[geo_col].apply(lambda x: pd.Series(extract_coordinates(x)))
+        normalized['LATITUDE'] = coords[0]
+        normalized['LONGITUDE'] = coords[1]
     elif loc_cols:
         # Try to extract coordinates from location string
         loc_col = loc_cols[0]
@@ -297,9 +384,9 @@ def normalize_csv(df):
         for col in df.columns:
             col_str = str(col).lower()
             # Look for explicit latitude/longitude columns
-            if 'latitude' in col_str or 'lat' == col_str:
+            if 'latitude' in col_str or 'lat' == col_str or 'reclat' == col_str:
                 normalized['LATITUDE'] = pd.to_numeric(df[col], errors='coerce')
-            elif 'longitude' in col_str or 'lon' == col_str or 'long' == col_str:
+            elif 'longitude' in col_str or 'lon' == col_str or 'long' == col_str or 'reclong' == col_str:
                 normalized['LONGITUDE'] = pd.to_numeric(df[col], errors='coerce')
     
     # If we still don't have coordinates, default to 0,0
@@ -309,31 +396,56 @@ def normalize_csv(df):
         normalized['LONGITUDE'] = 0.0
     
     # Extract magnitude
-    normalized['MAGNITUDE'] = extract_magnitude(df)
+    normalized['MAGNITUDE'] = extract_magnitude(df, column_types)
     
-    # Extract depth if available
+    # Extract depth/elevation if available
     depth_cols = column_types['depth']
+    elev_cols = column_types['elevation']
+    
     if depth_cols:
         normalized['DEPTH'] = pd.to_numeric(df[depth_cols[0]], errors='coerce')
+    elif elev_cols:
+        # For volcanic data, elevation can be useful (convert to depth as negative elevation)
+        normalized['DEPTH'] = -pd.to_numeric(df[elev_cols[0]], errors='coerce')
     else:
         # Try to find depth in any numeric column
+        depth_found = False
         for col in df.columns:
-            if df[col].dtype in [np.float64, np.int64]:
+            if df[col].dtype in [np.float64, np.int64, np.float32, np.int32]:
                 col_str = str(col).lower()
                 if 'depth' in col_str:
                     normalized['DEPTH'] = pd.to_numeric(df[col], errors='coerce')
+                    depth_found = True
+                    break
+                elif 'elevation' in col_str:
+                    normalized['DEPTH'] = -pd.to_numeric(df[col], errors='coerce')  # Negative elevation
+                    depth_found = True
                     break
         
         # Default depth if not found
-        if 'DEPTH' not in normalized.columns:
+        if not depth_found:
             normalized['DEPTH'] = 0.0
+    
+    # Add additional useful information if available
+    
+    # Add name if available
+    if column_types['name']:
+        normalized['NAME'] = df[column_types['name'][0]]
+    
+    # Add type if available
+    if column_types['type']:
+        normalized['TYPE'] = df[column_types['type'][0]]
+    
+    # Add country if available
+    if column_types['country']:
+        normalized['COUNTRY'] = df[column_types['country'][0]]
     
     # Add location description if available
     if loc_cols:
         normalized['LOCATION'] = df[loc_cols[0]]
     
     # Drop rows with null values in critical columns
-    normalized = normalized.dropna(subset=['YEAR', 'MONTH', 'DAY'])
+    normalized = normalized.dropna(subset=['YEAR'])
     
     # Fill missing coordinates with defaults
     normalized['LATITUDE'].fillna(0.0, inplace=True)
@@ -353,8 +465,37 @@ def detect_format(df):
     earthquake_indicators = ['magnitude', 'mag', 'depth', 'tsunami', 'mmi', 'cdi', 'sig']
     earthquake_score = sum(1 for col in df.columns if any(ind in str(col).lower() for ind in earthquake_indicators))
     
+    # Check for volcano data format
+    volcano_indicators = ['volcano', 'vei', 'eruption', 'lava', 'caldera', 'stratovolcano']
+    volcano_score = sum(1 for col in df.columns if any(ind in str(col).lower() for ind in volcano_indicators))
+    
+    # Check for meteorite data format
+    meteorite_indicators = ['meteorite', 'fell', 'recclass', 'nametype', 'mass']
+    meteorite_score = sum(1 for col in df.columns if any(ind in str(col).lower() for ind in meteorite_indicators))
+    
+    # Check sample values for additional clues
+    sample_values = []
+    for col in df.columns:
+        try:
+            if len(df) > 0 and df[col].dtype == object:
+                sample_values.extend(str(val).lower() for val in df[col].head())
+        except:
+            continue
+    
+    # Look for keywords in sample values
+    for value in sample_values:
+        if any(ind in value for ind in volcano_indicators):
+            volcano_score += 1
+        if any(ind in value for ind in meteorite_indicators):
+            meteorite_score += 1
+    
+    # Determine the dataset type based on scores
     if earthquake_score >= 2:
         format_info['type'] = 'earthquake'
+    elif volcano_score >= 2:
+        format_info['type'] = 'volcano'
+    elif meteorite_score >= 2:
+        format_info['type'] = 'meteorite'
     
     return format_info
 
@@ -376,20 +517,20 @@ def index():
                 
                 # Try multiple CSV parsers with different delimiters
                 tried_parsers = []
+                df = None
                 
                 for delimiter in [',', ';', '\t', '|']:
                     try:
+                        file_io.seek(0)  # Reset file pointer for next attempt
                         df = pd.read_csv(file_io, sep=delimiter)
                         if len(df.columns) > 1:  # Successfully parsed multiple columns
                             break
                         tried_parsers.append(f"Delimiter '{delimiter}': {len(df.columns)} columns")
-                        file_io.seek(0)  # Reset file pointer for next attempt
                     except Exception as e:
                         tried_parsers.append(f"Delimiter '{delimiter}': {str(e)}")
-                        file_io.seek(0)  # Reset file pointer for next attempt
                 
                 # If pandas couldn't parse it, try manual parsing
-                if len(df.columns) <= 1 and ' ' in file_content:
+                if df is None or len(df.columns) <= 1 and ' ' in file_content:
                     # Try to split by whitespace and create columns
                     lines = file_content.strip().split('\n')
                     if len(lines) > 1:
@@ -404,7 +545,13 @@ def index():
                             data = [line.split() for line in lines]
                         
                         # Create DataFrame
-                        df = pd.DataFrame(data, columns=header[:len(data[0])])
+                        df = pd.DataFrame(data, columns=header[:len(data[0])] if data else header)
+                
+                if df is None or len(df) == 0:
+                    return render_template('index.html', error='Could not parse the file with any known format')
+                
+                # Clean the data - remove completely empty rows and columns
+                df = df.dropna(how='all').dropna(axis=1, how='all')
                 
                 # Detect format
                 format_info = detect_format(df)
@@ -434,7 +581,9 @@ def download_file(filename):
     # Define allowed files to prevent unauthorized access
     allowed_files = [
         'earthquake_1995-2023.csv',
-        'tsunami_dataset.csv'
+        'tsunami_dataset.csv',
+        'volcano_eruptions.csv',
+        'meteorite_landings.csv'
     ]
     
     # Check if the requested file is allowed
