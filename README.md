@@ -7,6 +7,17 @@
 
 This project analyzes historical or contemporary events through the lens of Vedic astrology, revealing hidden planetary patterns and cosmic influences. It processes event data (like earthquakes, financial events, or personal milestones) and performs sophisticated astrological calculations combined with machine learning analysis.
 
+## Give us a ⭐️ if you find this project helpful!  
+
+If you like this project, please consider giving it a star ⭐️ on GitHub. Your support motivates me to keep improving it!  
+
+<p align="center">
+  <a href="https://buymeacoffee.com/ishanoshada">
+    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" height="50" alt="Buy Me a Coffee">
+  </a>
+</p>
+
+
 ## 🔍 Key Features
 
 ![1](/api/static/5.png)
